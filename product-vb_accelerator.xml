@@ -3,49 +3,40 @@
 <product productid="vb_accelerator" active="1">
 	<title>vB Accelerator</title>
 	<description>Optimise attachments processing</description>
-	<version>0.4</version>
+	<version>0.6</version>
 	<url><![CDATA[http://www.vbulletin.org/forum/misc.php?do=producthelp&pid=vb_accelerator]]></url>
 	<versioncheckurl><![CDATA[http://www.vbulletin.org/forum/misc.php?do=productcheck&pid=vb_accelerator]]></versioncheckurl>
-	<apm_releasedate>1236117600</apm_releasedate>
-	<apm_author>Dmitry Titov, Vitaly Puzrin</apm_author>
-	<apm_relatedurl />
-	<apm_extrainfo />
-	<apm_extraedit />
+	<apm_releasedate></apm_releasedate>
+	<apm_author></apm_author>
+	<apm_relatedurl></apm_relatedurl>
+	<apm_extrainfo></apm_extrainfo>
+	<apm_extraedit></apm_extraedit>
 	<dependencies>
 	</dependencies>
 	<codes>
 	</codes>
 	<templates>
 	</templates>
+	<stylevardfns>
+	</stylevardfns>
+	<stylevars>
+	</stylevars>
 	<plugins>
 		<plugin active="1" executionorder="5">
 			<title>Accelerate forum downloads</title>
 			<hookname>attachment_display</hookname>
-			<phpcode><![CDATA[if (    $vbulletin->options['vb_acc_nginx']
-    AND $vbulletin->options['attachfile'])
+			<phpcode><![CDATA[if (    $vbulletin->options['vb_acc_nginx'])
 {
   @fclose($fp);
 
   require_once(DIR . '/includes/functions_file.php');
 
-  if ($vbulletin->GPC['thumb'])
-  {
-    $attachuri = fetch_attachment_path(
+  $attachuri = fetch_attachment_path(
         $attachmentinfo['userid'],
-        $attachmentinfo['attachmentid'],
-        true,
+        $attachmentinfo['filedataid'],
+        (bool)$vbulletin->GPC['thumb'],
         $vbulletin->options['vb_acc_www_path_posts']
       );
-  }
-  else
-  {
-    $attachuri = fetch_attachment_path(
-        $attachmentinfo['userid'],
-        $attachmentinfo['attachmentid'],
-        false,
-        $vbulletin->options['vb_acc_www_path_posts']
-      );
-  }
 
   header('X-Accel-Redirect: ' . $attachuri);
 
@@ -76,309 +67,112 @@
   exit;
 }]]></phpcode>
 		</plugin>
-		<plugin active="1" executionorder="5">
-			<title>Accelerate blog downloads</title>
-			<hookname>blog_attachment_display</hookname>
-			<phpcode><![CDATA[if (    $vbulletin->options['vb_acc_nginx']
-    AND $vbulletin->options['blogattachfile'])
+		<plugin active="1" executionorder="2">
+			<title>Replace old thumb attachements links</title>
+			<hookname>global_complete</hookname>
+			<phpcode><![CDATA[// this hook must eval before VBSeo
+
+if (!isset($cdn_list))
 {
-  @fclose($fp);
-
-  require_once(DIR . '/includes/functions_file.php');
-
-  if ($vbulletin->GPC['thumb'])
-  {
-    $attachuri = fetch_attachment_path(
-        $attachmentinfo['userid'],
-        $attachmentinfo['attachmentid'],
-        true,
-        $vbulletin->options['vb_acc_www_path_blogs']
-      );
-  }
-  else
-  {
-    $attachuri = fetch_attachment_path(
-        $attachmentinfo['userid'],
-        $attachmentinfo['attachmentid'],
-        false,
-        $vbulletin->options['vb_acc_www_path_blogs']
-      );
-  }
-
-  header('X-Accel-Redirect: ' . $attachuri);
-
-  // update views counter
-  if (    !$vbulletin->GPC['thumb']
-      AND connection_status() == 0
-      AND $lastbyte == ($attachmentinfo['filesize'] - 1))
-  {
-    if ($vbulletin->options['attachmentviewslive'])
+    $vbulletin->options['vb_acc_cdn_list'] = trim($vbulletin->options['vb_acc_cdn_list']);
+    if (!empty($vbulletin->options['vb_acc_cdn_list']))
     {
-      // doing it as they happen; not using a DM to avoid overhead
-      $db->query_write("
-          UPDATE " . TABLE_PREFIX . "blog_attachment SET
-          counter = counter + 1
-          WHERE attachmentid = $attachmentinfo[attachmentid]
-        ");
+        $cdn_list = explode("\n", $vbulletin->options['vb_acc_cdn_list']);
+        $cdn_list = array_map('trim', $cdn_list);
+        foreach ($cdn_list as $key=>$cdn)
+        {
+            if ('/' == $cdn[strlen($cdn)-1])
+            {
+                $cdn_list[$key] = substr($cdn, 0, -1);
+            }
+        }
     }
     else
     {
-      // or doing it once an hour
-      $db->query_write("
-          INSERT INTO " . TABLE_PREFIX . "blog_attachmentviews (attachmentid)
-          VALUES ($attachmentinfo[attachmentid])
-        ");
+        $cdn_list[] = $vbulletin->options['bburl'];
     }
-  }
+}
 
-  exit;
-}]]></phpcode>
-		</plugin>
-		<plugin active="1" executionorder="5">
-			<title>Blog attach direct links end</title>
-			<hookname>blog_entry_display_complete</hookname>
-			<phpcode><![CDATA[if ($this->registry->options['vb_acc_thumb_img_src'])
+
+// Are there "attachment.php" in output html
+if (strpos($output, 'attachment.php'))
 {
-  $searchmessage = array();
-  $searchthumbs  = array();
-  $replace       = array();
+    // get thumb attaches list
+    $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#im';
+    preg_match_all($pattern, $output, $matches, PREG_SET_ORDER);
 
-  require_once(DIR . '/includes/functions_file.php');
+    $attachment_ids = array();
+    $attachments = array();
+    $transformed_attachments = array();
+    foreach ($matches as $val) {
+        list( , $url,$attachment_id) = $val;
+        $attachment_ids[] = $attachment_id;
+        $attachments[$attachment_id] = $url;
+        $transformed_attachments[$attachment_id] = $url;
+    }
 
-  foreach ($vba_thumbs AS $attachid => $attachment)
-  {
-    // fetch attachment uri
-    $attachuri =
-      fetch_attachment_path(
-        $this->blog['userid'],
-        $attachment['attachmentid'],
-        true,
-        $this->registry->options['vb_acc_www_path_blogs']
-      );
-
-    if ($attachuri)
+    if (!empty($attachment_ids))
     {
-      $searchmessage[] =
-          "src=\"{$this->registry->options['bburl']}/blog_attachment.php?"
-        . "{$this->registry->session->vars['sessionurl']}"
-        . "attachmentid=$attachment[attachmentid]"
-        . "&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\"";
+        require_once(DIR . '/includes/functions_file.php');
 
-      $searchthumbs[]  =
-          "src=\"blog_attachment.php?"
-        . "{$this->registry->session->vars['sessionurl']}"
-        . "attachmentid=$attachment[attachmentid]"
-        . "&amp;stc=1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\"";
+        // todo maybe add index to "attachment" table?
+        $sql = 'SELECT
+                    a.attachmentid, a.filedataid, a.userid
+                FROM ' . TABLE_PREFIX . 'attachment AS a
+                WHERE
+                    a.attachmentid IN (' . implode(', ', $attachment_ids) . ')';
 
-      $replace[] =
-        "src=\"$attachuri?d=$attachment[thumbnail_dateline]\"";
+        $result = $vbulletin->db->query_read($sql);
+        $position = 0;
+        while ($row = $vbulletin->db->fetch_array($result))
+        {
+            $path = $cdn_list[$position] . $vbulletin->options['vb_acc_www_path_posts'];
+            $transformed_attachments[$row['attachmentid']]= fetch_attachment_path(
+                $row['userid'],
+                $row['filedataid'],
+                true,
+                $path
+            );
+            $position = ++$position % count($cdn_list);
+        }
     }
-  }
-
-  if (count($searchmessage))
-  {
-    $this->blog['message'] =
-      str_replace(
-        $searchmessage,
-        $replace,
-        $this->blog['message']
-      );
-  }
-
-  if (count($searchthumbs))
-  {
-    $this->blog['thumbnailattachments'] =
-      str_replace(
-        $searchthumbs,
-        $replace,
-        $this->blog['thumbnailattachments']
-      );
-  }
-
-  unset($vba_thumbs);
-}]]></phpcode>
-		</plugin>
-		<plugin active="1" executionorder="5">
-			<title>Blog attach direct links start</title>
-			<hookname>blog_entry_display_start</hookname>
-			<phpcode><![CDATA[if ($this->registry->options['vb_acc_thumb_img_src'])
-{
-  // save attachments info to use in 'postbit_display_complete' hook
-  $vba_thumbs = array();
-
-  if (isset($this->attachments)) {
-    foreach ($this->attachments AS $attachid => $attachment)
+    // replace old thumb attachements links
+    if (!empty($attachments))
     {
-      $vba_thumbs["$attachid"] =& $this->attachments["$attachid"];
+        $output = str_replace($attachments, $transformed_attachments, $output);
     }
-  }
-}]]></phpcode>
-		</plugin>
-		<plugin active="1" executionorder="5">
-			<title>Accelerate albums pictures</title>
-			<hookname>picture_haveimage</hookname>
-			<phpcode><![CDATA[if (    $vbulletin->options['vb_acc_nginx']
-    AND $have_image
-    AND !$vbulletin->GPC['thumb'])
-{
-  // override absolute path to relative
-  $vbulletin->options['album_picpath'] =
-    $vbulletin->options['vb_acc_www_path_albums'];
-
-  $pictureuri = fetch_picture_fs_path(
-      $imageinfo,
-      $vbulletin->GPC['thumb'],
-      true
-    );
-
-  header('X-Accel-Redirect: ' . $pictureuri);
-
-  /* -- taken from picture.php -- cut -- */
-  header('Cache-control: max-age=31536000');
-  header('Expires: ' . gmdate('D, d M Y H:i:s', (TIMENOW + 31536000)) . ' GMT');
-  header('Content-disposition: inline; filename=' . "user$imageinfo[userid]_pic$imageinfo[pictureid]_$imageinfo[dateline]" . ($vbulletin->GPC['thumb'] ? '_thumb' : '') . ".$imageinfo[extension]");
-  header('Content-transfer-encoding: binary');
-  if ($imageinfo['filesize'])
-  {
-    header('Content-Length: ' . $imageinfo['filesize']);
-  }
-  header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $imageinfo['dateline']) . ' GMT');
-  header('ETag: "' . $imageinfo['dateline'] . '-' . $imageinfo['pictureid'] . ($vbulletin->GPC['thumb'] ? '-thumb' : '') . '"');
-
-  if ($imageinfo['extension'] == 'jpg' OR $imageinfo['extension'] == 'jpeg')
-  {
-    header('Content-type: image/jpeg');
-  }
-  else if ($imageinfo['extension'] == 'png')
-  {
-    header('Content-type: image/png');
-  }
-  else
-  {
-    header('Content-type: image/gif');
-  }
-  /* -- taken from picture.php -- / cut -- */
-
-  exit;
-}]]></phpcode>
-		</plugin>
-		<plugin active="1" executionorder="5">
-			<title>Post attach direct links end</title>
-			<hookname>postbit_display_complete</hookname>
-			<phpcode><![CDATA[if ($this->registry->options['vb_acc_thumb_img_src'])
-{
-  $searchmessage = array();
-  $searchthumbs  = array();
-  $replace       = array();
-
-  require_once(DIR . '/includes/functions_file.php');
-
-  foreach ($vba_thumbs AS $attachid => $attachment)
-  {
-    // fetch attachment uri
-    $attachuri =
-      fetch_attachment_path(
-        $this->post['userid'],
-        $attachment['attachmentid'],
-        true,
-        $this->registry->options['vb_acc_www_path_posts']
-      );
-
-    if ($attachuri)
-    {
-      $searchmessage[] =
-          "src=\"{$this->registry->options['bburl']}/attachment.php?"
-        . "{$this->registry->session->vars['sessionurl']}"
-        . "attachmentid=$attachment[attachmentid]"
-        . "&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\"";
-
-      $searchthumbs[]  =
-          "src=\"attachment.php?"
-        . "{$this->registry->session->vars['sessionurl']}"
-        . "attachmentid=$attachment[attachmentid]"
-        . "&amp;stc=1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\"";
-
-      $replace[] =
-        "src=\"$attachuri?d=$attachment[thumbnail_dateline]\"";
-    }
-  }
-
-  if (count($searchmessage))
-  {
-    $this->post['message'] =
-      str_replace(
-        $searchmessage,
-        $replace,
-        $this->post['message']
-      );
-  }
-
-  if (count($searchthumbs))
-  {
-    $this->post['thumbnailattachments'] =
-      str_replace(
-        $searchthumbs,
-        $replace,
-        $this->post['thumbnailattachments']
-      );
-  }
-
-  unset($vba_thumbs);
-}]]></phpcode>
-		</plugin>
-		<plugin active="1" executionorder="5">
-			<title>Post attach direct links start</title>
-			<hookname>postbit_display_start</hookname>
-			<phpcode><![CDATA[if ($this->registry->options['vb_acc_thumb_img_src'])
-{
-  // save attachments info to use in 'postbit_display_complete' hook
-  $vba_thumbs = array();
-
-  if (isset($this->post['attachments']))
-  {
-    foreach ($this->post['attachments'] AS $attachid => $attachment)
-    {
-      $vba_thumbs["$attachid"] =& $this->post['attachments']["$attachid"];
-    }
-  }
 }]]></phpcode>
 		</plugin>
 	</plugins>
 	<phrases>
 		<phrasetype name="vBulletin Settings" fieldname="vbsettings">
+			<phrase name="setting_vb_acc_cdn_list_desc" date="1276075558" username="Vitaly" version="0.6"><![CDATA[Enter up to 4 mirror domains, to load local images faster. For example:<br>
+<br>
+http://img1.myforum.com<br>
+http://img2.myforum.com<br>
+http://img3.myforum.com<br>
+http://img4.myforum.com<br>
+<br>
+If don't use mirrors - leave this field blank or set to forum domain.]]></phrase>
+			<phrase name="setting_vb_acc_cdn_list_title" date="1276075558" username="Vitaly" version="0.6"><![CDATA[CDN list]]></phrase>
 			<phrase name="setting_vb_acc_nginx_desc" date="1236190598" username="Vitaly" version="0.2"><![CDATA[ONLY set yes, if you have NGINX websever!!!<br /> <br /> Other webservers don't catch X-Accel-Redirect headers!!!]]></phrase>
 			<phrase name="setting_vb_acc_nginx_title" date="1236190598" username="Vitaly" version="0.2"><![CDATA[Enable large downloads acceleration]]></phrase>
-			<phrase name="setting_vb_acc_thumb_img_src_desc" date="1236201932" username="Dimit" version="0.2"><![CDATA[Don't forget to enable direct web-access to ".thumb" files and protect ".attach" files.]]></phrase>
-			<phrase name="setting_vb_acc_thumb_img_src_title" date="1236201932" username="Dimit" version="0.2"><![CDATA[Set direct links for thumbnail images]]></phrase>
-			<phrase name="setting_vb_acc_www_path_albums_desc" date="1236202033" username="Dimit" version="0.2"><![CDATA[Relative web-server URI to albums pictures (NOT thumbnails!) directory. No trailing slash allowed.]]></phrase>
-			<phrase name="setting_vb_acc_www_path_albums_title" date="1236202033" username="Dimit" version="0.2"><![CDATA[Path to albums pictures]]></phrase>
-			<phrase name="setting_vb_acc_www_path_blogs_desc" date="1236189387" username="Dimit" version="0.2"><![CDATA[Relative web-server URI to blogs attachments directory. No trailing slash allowed.]]></phrase>
-			<phrase name="setting_vb_acc_www_path_blogs_title" date="1236189387" username="Dimit" version="0.2"><![CDATA[Path to blogs attachments]]></phrase>
-			<phrase name="setting_vb_acc_www_path_posts_desc" date="1236189343" username="Dimit" version="0.2"><![CDATA[Relative web-server URI to forum posts attachments directory. No trailing slash allowed.]]></phrase>
-			<phrase name="setting_vb_acc_www_path_posts_title" date="1236189343" username="Dimit" version="0.2"><![CDATA[Path to forum posts attachments]]></phrase>
+			<phrase name="setting_vb_acc_www_path_posts_desc" date="1275476288" username="varnak" version="0.4"><![CDATA[Relative web-server URI to attachments directory. No trailing slash allowed.]]></phrase>
+			<phrase name="setting_vb_acc_www_path_posts_title" date="1275476288" username="varnak" version="0.4"><![CDATA[Path to attachments]]></phrase>
 			<phrase name="settinggroup_vb_accelerator" date="1236189322" username="Dimit" version="0.2"><![CDATA[vB Accelerator]]></phrase>
 		</phrasetype>
 	</phrases>
 	<options>
 		<settinggroup name="vb_accelerator" displayorder="65535">
-			<setting varname="vb_acc_nginx" displayorder="10">
-				<datatype>boolean</datatype>
-				<optioncode>yesno</optioncode>
-				<defaultvalue>0</defaultvalue>
-			</setting>
-			<setting varname="vb_acc_www_path_posts" displayorder="20">
+			<setting varname="vb_acc_www_path_posts" displayorder="10">
 				<datatype>free</datatype>
-				<defaultvalue>/uploads/posts</defaultvalue>
+				<defaultvalue>/uploads</defaultvalue>
 			</setting>
-			<setting varname="vb_acc_www_path_blogs" displayorder="30">
+			<setting varname="vb_acc_cdn_list" displayorder="20">
 				<datatype>free</datatype>
-				<defaultvalue>/uploads/blogs</defaultvalue>
+				<optioncode>textarea</optioncode>
 			</setting>
-			<setting varname="vb_acc_www_path_albums" displayorder="40">
-				<datatype>free</datatype>
-				<defaultvalue>/uploads/albums</defaultvalue>
-			</setting>
-			<setting varname="vb_acc_thumb_img_src" displayorder="50">
+			<setting varname="vb_acc_nginx" displayorder="30">
 				<datatype>boolean</datatype>
 				<optioncode>yesno</optioncode>
 				<defaultvalue>0</defaultvalue>
