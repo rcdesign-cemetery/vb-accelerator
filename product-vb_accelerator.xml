@@ -3,7 +3,7 @@
 <product productid="vb_accelerator" active="1">
 	<title>vB Accelerator</title>
 	<description>Optimise attachments processing</description>
-	<version>0.6</version>
+	<version>0.7</version>
 	<url><![CDATA[http://www.vbulletin.org/forum/misc.php?do=producthelp&pid=vb_accelerator]]></url>
 	<versioncheckurl><![CDATA[http://www.vbulletin.org/forum/misc.php?do=productcheck&pid=vb_accelerator]]></versioncheckurl>
 	<apm_releasedate></apm_releasedate>
@@ -14,6 +14,14 @@
 	<dependencies>
 	</dependencies>
 	<codes>
+		<code version="0.7">
+			<installcode><![CDATA[$db->hide_errors();
+ $db->query_write("ALTER TABLE " . TABLE_PREFIX . "attachment ADD INDEX `vba_coverage` ( `attachmentid` , `filedataid` , `userid` ) ");
+$db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[$db->hide_errors();
+$db->query_write("ALTER TABLE " . TABLE_PREFIX . "attachment DROP INDEX vba_coverage");
+$db->show_errors();]]></uninstallcode>
+		</code>
 	</codes>
 	<templates>
 	</templates>
