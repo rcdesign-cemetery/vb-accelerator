@@ -106,7 +106,7 @@ if (!isset($cdn_list))
 if (strpos($output, 'attachment.php'))
 {
     // get thumbnails list
-    $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#im';
+    $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#';
     preg_match_all($pattern, $output, $matches, PREG_SET_ORDER);
 
     $attachment_ids = array();
@@ -159,7 +159,7 @@ if (strpos($output, 'asset.php'))
     require_once(DIR . '/includes/functions_file.php');
 
     // get thumbnails list
-    $pattern = '#src=\"(asset.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'fid=(\d+)&amp;uid=(\d+)&amp;d=(\d+))\"#im';
+    $pattern = '#src=\"(asset.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'fid=(\d+)&amp;uid=(\d+)&amp;d=(\d+))\"#';
     preg_match_all($pattern, $output, $matches, PREG_SET_ORDER);
 
     $attachment_ids = array();
@@ -219,7 +219,7 @@ if (!isset($cdn_list))
 if (strpos($this->doc, 'attachment.php'))
 {
     // get thumbnails list
-    $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#im';
+    $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#';
     preg_match_all($pattern, $this->doc, $matches, PREG_SET_ORDER);
 
     $attachment_ids = array();
@@ -272,7 +272,7 @@ if (strpos($this->doc, 'asset.php'))
     require_once(DIR . '/includes/functions_file.php');
 
     // get thumbnails list
-    $pattern = '#src=\"(asset.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'fid=(\d+)&amp;uid=(\d+)&amp;d=(\d+))\"#im';
+    $pattern = '#src=\"(asset.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'fid=(\d+)&amp;uid=(\d+)&amp;d=(\d+))\"#';
     preg_match_all($pattern, $this->doc, $matches, PREG_SET_ORDER);
 
     $attachment_ids = array();
