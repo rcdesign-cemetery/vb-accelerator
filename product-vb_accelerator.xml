@@ -3,7 +3,7 @@
 <product productid="vb_accelerator" active="1">
 	<title>vB Accelerator</title>
 	<description>Optimise attachments processing</description>
-	<version>0.7</version>
+	<version>0.8</version>
 	<url><![CDATA[http://www.vbulletin.org/forum/misc.php?do=producthelp&pid=vb_accelerator]]></url>
 	<versioncheckurl><![CDATA[http://www.vbulletin.org/forum/misc.php?do=productcheck&pid=vb_accelerator]]></versioncheckurl>
 	<apm_releasedate></apm_releasedate>
@@ -31,7 +31,7 @@ $db->show_errors();]]></uninstallcode>
 	</stylevars>
 	<plugins>
 		<plugin active="1" executionorder="5">
-			<title>Accelerate forum downloads</title>
+			<title>Accelerate fullsize attachments downloads</title>
 			<hookname>attachment_display</hookname>
 			<phpcode><![CDATA[if (    $vbulletin->options['vb_acc_nginx'])
 {
@@ -76,7 +76,7 @@ $db->show_errors();]]></uninstallcode>
 }]]></phpcode>
 		</plugin>
 		<plugin active="1" executionorder="2">
-			<title>Replace old thumb attachements links</title>
+			<title>Replace Thumbnails Links for HTML</title>
 			<hookname>global_complete</hookname>
 			<phpcode><![CDATA[// this hook must eval before VBSeo
 
@@ -102,10 +102,10 @@ if (!isset($cdn_list))
 }
 
 
-// Are there "attachment.php" in output html
+// Only procees if "attachment.php" exists in output html
 if (strpos($output, 'attachment.php'))
 {
-    // get thumb attaches list
+    // get thumbnails list
     $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#im';
     preg_match_all($pattern, $output, $matches, PREG_SET_ORDER);
 
@@ -135,12 +135,14 @@ if (strpos($output, 'attachment.php'))
         while ($row = $vbulletin->db->fetch_array($result))
         {
             $path = $cdn_list[$position] . $vbulletin->options['vb_acc_www_path_posts'];
+            // extract timestamp 
+            preg_match('#&amp;d=(\d+)#', $transformed_attachments[$row['attachmentid']], $timestamp);
             $transformed_attachments[$row['attachmentid']]= fetch_attachment_path(
                 $row['userid'],
                 $row['filedataid'],
                 true,
                 $path
-            );
+            ) . '?d='. $timestamp[1];
             $position = ++$position % count($cdn_list);
         }
     }
@@ -148,6 +150,153 @@ if (strpos($output, 'attachment.php'))
     if (!empty($attachments))
     {
         $output = str_replace($attachments, $transformed_attachments, $output);
+    }
+}
+
+// Only procees if "asset.php" exists in output html
+if (strpos($output, 'asset.php'))
+{
+    require_once(DIR . '/includes/functions_file.php');
+
+    // get thumbnails list
+    $pattern = '#src=\"(asset.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'fid=(\d+)&amp;uid=(\d+)&amp;d=(\d+))\"#im';
+    preg_match_all($pattern, $output, $matches, PREG_SET_ORDER);
+
+    $attachment_ids = array();
+    $attachments = array();
+    $transformed_attachments = array();
+    $position = 0;
+    
+    foreach ($matches as $val) {
+        list( , $url,$attachment_fid,$attachment_uid,$attachment_timestamp) = $val;
+        $attachments[$attachment_fid] = $url;
+        $path = $cdn_list[$position] . $vbulletin->options['vb_acc_www_path_posts'];
+        $transformed_attachments[$attachment_fid]= fetch_attachment_path(
+                $attachment_uid,
+                $attachment_fid,
+                true,
+                $path
+        ) . '?d=' . $attachment_timestamp;
+        $position = ++$position % count($cdn_list);
+    }
+
+    // replace thumb links
+    if (!empty($attachments))
+    {
+        $output = str_replace($attachments, $transformed_attachments, $output);
+    }
+}]]></phpcode>
+		</plugin>
+		<plugin active="1" executionorder="2">
+			<title>Replace Thumbnails Links for XML</title>
+			<hookname>xml_print_output</hookname>
+			<phpcode><![CDATA[// this hook must eval before VBSeo
+global $vbulletin;
+
+if (!isset($cdn_list))
+{
+    $vbulletin->options['vb_acc_cdn_list'] = trim($vbulletin->options['vb_acc_cdn_list']);
+    if (!empty($vbulletin->options['vb_acc_cdn_list']))
+    {
+        $cdn_list = explode("\n", $vbulletin->options['vb_acc_cdn_list']);
+        $cdn_list = array_map('trim', $cdn_list);
+        foreach ($cdn_list as $key=>$cdn)
+        {
+            if ('/' == $cdn[strlen($cdn)-1])
+            {
+                $cdn_list[$key] = substr($cdn, 0, -1);
+            }
+        }
+    }
+    else
+    {
+        $cdn_list[] = $vbulletin->options['bburl'];
+    }
+}
+
+
+// Only procees if "attachment.php" exists in output html
+if (strpos($this->doc, 'attachment.php'))
+{
+    // get thumbnails list
+    $pattern = '#src=\"((?:' . preg_quote($vbulletin->options['bburl'] . '/') . ')?' . 'attachment.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'attachmentid=(\d+)[\w:\d&=;]*thumb=1[\w:\d&=;]*)\"#im';
+    preg_match_all($pattern, $this->doc, $matches, PREG_SET_ORDER);
+
+    $attachment_ids = array();
+    $attachments = array();
+    $transformed_attachments = array();
+    foreach ($matches as $val) {
+        list( , $url,$attachment_id) = $val;
+        $attachment_ids[] = $attachment_id;
+        $attachments[$attachment_id] = $url;
+        $transformed_attachments[$attachment_id] = $url;
+    }
+
+    if (!empty($attachment_ids))
+    {
+        require_once(DIR . '/includes/functions_file.php');
+
+        // todo maybe add index to "attachment" table?
+        $sql = 'SELECT
+                    a.attachmentid, a.filedataid, a.userid
+                FROM ' . TABLE_PREFIX . 'attachment AS a
+                WHERE
+                    a.attachmentid IN (' . implode(', ', $attachment_ids) . ')';
+
+        $result = $vbulletin->db->query_read($sql);
+        $position = 0;
+        while ($row = $vbulletin->db->fetch_array($result))
+        {
+            $path = $cdn_list[$position] . $vbulletin->options['vb_acc_www_path_posts'];
+            // extract timestamp 
+            preg_match('#&amp;d=(\d+)#', $transformed_attachments[$row['attachmentid']], $timestamp);
+            $transformed_attachments[$row['attachmentid']]= fetch_attachment_path(
+                $row['userid'],
+                $row['filedataid'],
+                true,
+                $path
+            ) . '?d='. $timestamp[1];
+            $position = ++$position % count($cdn_list);
+        }
+    }
+    // replace old thumb attachements links
+    if (!empty($attachments))
+    {
+        $this->doc = str_replace($attachments, $transformed_attachments, $this->doc);
+    }
+}
+
+// Only procees if "asset.php" exists in output html
+if (strpos($this->doc, 'asset.php'))
+{
+    require_once(DIR . '/includes/functions_file.php');
+
+    // get thumbnails list
+    $pattern = '#src=\"(asset.php\?' . preg_quote("{$vbulletin->session->vars['sessionurl']}") . 'fid=(\d+)&amp;uid=(\d+)&amp;d=(\d+))\"#im';
+    preg_match_all($pattern, $this->doc, $matches, PREG_SET_ORDER);
+
+    $attachment_ids = array();
+    $attachments = array();
+    $transformed_attachments = array();
+    $position = 0;
+    
+    foreach ($matches as $val) {
+        list( , $url,$attachment_fid,$attachment_uid,$attachment_timestamp) = $val;
+        $attachments[$attachment_fid] = $url;
+        $path = $cdn_list[$position] . $vbulletin->options['vb_acc_www_path_posts'];
+        $transformed_attachments[$attachment_fid]= fetch_attachment_path(
+                $attachment_uid,
+                $attachment_fid,
+                true,
+                $path
+        ) . '?d=' . $attachment_timestamp;
+        $position = ++$position % count($cdn_list);
+    }
+
+    // replace thumb links
+    if (!empty($attachments))
+    {
+        $this->doc = str_replace($attachments, $transformed_attachments, $this->doc);
     }
 }]]></phpcode>
 		</plugin>
