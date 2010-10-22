@@ -3,14 +3,14 @@
 <product productid="vb_accelerator" active="1">
 	<title>vB Accelerator</title>
 	<description>Optimise attachments processing</description>
-	<version>0.8</version>
+	<version>0.9</version>
 	<url><![CDATA[http://www.vbulletin.org/forum/misc.php?do=producthelp&pid=vb_accelerator]]></url>
 	<versioncheckurl><![CDATA[http://www.vbulletin.org/forum/misc.php?do=productcheck&pid=vb_accelerator]]></versioncheckurl>
-	<apm_releasedate></apm_releasedate>
-	<apm_author></apm_author>
-	<apm_relatedurl></apm_relatedurl>
-	<apm_extrainfo></apm_extrainfo>
-	<apm_extraedit></apm_extraedit>
+	<apm_releasedate>0</apm_releasedate>
+	<apm_author />
+	<apm_relatedurl />
+	<apm_extrainfo />
+	<apm_extraedit />
 	<dependencies>
 	</dependencies>
 	<codes>
@@ -40,7 +40,7 @@ $db->show_errors();]]></uninstallcode>
   require_once(DIR . '/includes/functions_file.php');
 
   $attachuri = fetch_attachment_path(
-        $attachmentinfo['userid'],
+        $attachmentinfo['uploader'],
         $attachmentinfo['filedataid'],
         (bool)$vbulletin->GPC['thumb'],
         $vbulletin->options['vb_acc_www_path_posts']
@@ -125,8 +125,9 @@ if (strpos($output, 'attachment.php'))
 
         // todo maybe add index to "attachment" table?
         $sql = 'SELECT
-                    a.attachmentid, a.filedataid, a.userid
+                    a.attachmentid, a.filedataid, fd.userid as uploader
                 FROM ' . TABLE_PREFIX . 'attachment AS a
+                INNER JOIN ' . TABLE_PREFIX . 'filedata AS fd USING (filedataid)
                 WHERE
                     a.attachmentid IN (' . implode(', ', $attachment_ids) . ')';
 
@@ -138,7 +139,7 @@ if (strpos($output, 'attachment.php'))
             // extract timestamp 
             preg_match('#&amp;d=(\d+)#', $transformed_attachments[$row['attachmentid']], $timestamp);
             $transformed_attachments[$row['attachmentid']]= fetch_attachment_path(
-                $row['userid'],
+                $row['uploader'],
                 $row['filedataid'],
                 true,
                 $path
@@ -238,8 +239,9 @@ if (strpos($this->doc, 'attachment.php'))
 
         // todo maybe add index to "attachment" table?
         $sql = 'SELECT
-                    a.attachmentid, a.filedataid, a.userid
+                    a.attachmentid, a.filedataid, fd.userid as uploader
                 FROM ' . TABLE_PREFIX . 'attachment AS a
+                INNER JOIN ' . TABLE_PREFIX . 'filedata AS fd USING (filedataid)
                 WHERE
                     a.attachmentid IN (' . implode(', ', $attachment_ids) . ')';
 
@@ -251,7 +253,7 @@ if (strpos($this->doc, 'attachment.php'))
             // extract timestamp 
             preg_match('#&amp;d=(\d+)#', $transformed_attachments[$row['attachmentid']], $timestamp);
             $transformed_attachments[$row['attachmentid']]= fetch_attachment_path(
-                $row['userid'],
+                $row['uploader'],
                 $row['filedataid'],
                 true,
                 $path
